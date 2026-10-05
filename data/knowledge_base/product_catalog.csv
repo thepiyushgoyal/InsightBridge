@@ -1,0 +1,9 @@
+product_id,product_name,category,brand,list_price,active_flag
+P1001,Everyday Cotton Tee,Apparel,Northstar Basics,24.00,true
+P1002,Trail Runner Sneaker,Apparel,StrideWorks,89.00,true
+P1003,Ceramic Pour-Over Set,Home,BrewNest,42.50,true
+P1004,LED Desk Lamp,Home,LumaDesk,56.00,true
+P1005,Hydrating Face Serum,Beauty,GlowTheory,34.00,true
+P1006,Wireless Earbuds,Electronics,SoundPilot,79.99,true
+P1007,Canvas Weekend Tote,Accessories,HarborLine,48.00,false
+P1008,Stainless Travel Mug,Home,BrewNest,28.00,true

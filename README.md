@@ -1,137 +1,178 @@
-# InsightBridge - Analytics Knowledge Copilot
+# InsightBridge
 
-InsightBridge is a beginner-friendly, resume-presentable Streamlit RAG application for answering analytics and SQL questions from a small internal knowledge base.
+InsightBridge is a Streamlit-based Retrieval-Augmented Generation (RAG) analytics knowledge copilot for a fictional e-commerce team. It answers questions about metric definitions, data quality, schemas, SQL patterns, and dashboard guidance using the checked-in local knowledge base.
 
-The fictional knowledge base represents an e-commerce analytics team and includes a data dictionary, KPI definitions, dashboard guidance, SQL examples, data-quality rules, and a small product catalog.
+## Problem statement
 
-## What It Does
+Analytics definitions and SQL guidance are often spread across several documents. InsightBridge provides a small, grounded interface for finding relevant documentation and, when appropriate, generating and running a read-only query against a local SQLite sample database.
 
-- Loads local Markdown, TXT, CSV, SQL, and optional PDF documents.
-- Splits documents into chunks with LangChain.
-- Creates OpenAI embeddings.
-- Stores embeddings in a local FAISS vector index.
-- Lets users ask natural-language analytics questions.
-- Supports Similarity and MMR retrieval.
-- Generates grounded answers with source citations.
-- Refuses to invent unsupported schemas, metrics, business rules, or unsafe SQL.
-- Can execute generated read-only SQLite `SELECT` queries against a local sample database and display the result table.
+## Features
 
-## Architecture Flow
+- Loads Markdown, TXT, CSV, SQL, and PDF files from `data/knowledge_base/`.
+- Chunks documents and creates OpenAI `text-embedding-3-small` embeddings.
+- Stores embeddings in a local FAISS index at `data/faiss_index/`.
+- Supports Similarity and MMR retrieval with configurable top-k results.
+- Generates grounded answers with retrieved source filenames and references.
+- Generates SQLite-compatible SQL for supported questions.
+- Validates and executes only read-only `SELECT`/`WITH` SQL against the sample database.
+- Runs locally and on Heroku with the OpenAI key supplied through the environment.
+
+## Architecture
 
 ```text
-data/knowledge_base/
+Knowledge-base files
         |
         v
-Document Loaders
-        |
-        v
-RecursiveCharacterTextSplitter
-        |
-        v
-OpenAI Embeddings
-        |
-        v
-FAISS Local Vector Store
-        |
-        v
-Retriever: Similarity or MMR
-        |
-        v
-Grounded Prompt + OpenAI Chat Model
-        |
-        v
-Streamlit Answer + Source Citations
-        |
-        v
-Optional SQL Guardrails + SQLite Query Result
+Document loaders -> text chunks -> OpenAI embeddings -> local FAISS index
+                                                     |
+                                                     v
+Question -> Similarity/MMR retriever -> grounded OpenAI chat prompt
+                                                     |
+                                                     v
+                                      Answer, citations, optional SQL
+                                                     |
+                                                     v
+                                      Read-only SQLite result table
 ```
 
-## Tech Stack
+## Tech stack
 
-- Python
+- Python 3.12
 - Streamlit
 - LangChain
-- OpenAI embeddings and chat models
-- FAISS local vector database
-- python-dotenv
+- OpenAI embeddings and chat model
+- FAISS CPU
+- Pandas
+- PyPDF
+- SQLite
+- `python-dotenv`
 
-The Streamlit sidebar defaults to `gpt-5.6-terra`, which is intended as a balanced OpenAI model choice. You can change the model name from the UI.
+## Project structure
 
-## Setup
+```text
+InsightBridge/
+├── app.py
+├── Procfile
+├── .env.example
+├── .python-version
+├── requirements.txt
+├── data/
+│   ├── knowledge_base/       # Source documents used by RAG
+│   └── sample_database/      # SQLite demo database
+├── docs/                     # Project explanation
+├── evaluation/               # Smoke test and evaluation questions
+└── src/
+    ├── database.py
+    ├── ingestion.py
+    ├── loaders.py
+    ├── prompts.py
+    ├── rag_chain.py
+    └── sql_runner.py
+```
 
-Use Python 3.10 or newer.
+## Knowledge base and RAG workflow
+
+The knowledge base contains a data dictionary, metric definitions, dashboard guidance, SQL examples, data-quality rules, SQLite execution notes, a product catalog, and a PDF reference. The application loads these files, splits them with `RecursiveCharacterTextSplitter`, embeds the chunks, and persists them in FAISS. Each question retrieves either similar or diverse relevant chunks, then passes those chunks to the grounded chat prompt.
+
+The sidebar provides Similarity or MMR retrieval and a top-k control. Retrieved source filenames, page/chunk references, and previews are displayed with each answer.
+
+## SQL safety
+
+The prompt requests only one read-only query. Before execution, `src/sql_runner.py` normalizes SQLite compatibility details, rejects multiple statements, requires `SELECT` or `WITH`, blocks write/administrative keywords, and connects to SQLite in read-only mode. SQL execution can also be disabled from the sidebar. These are lightweight application guardrails, not a full SQL parser.
+
+## Local installation
+
+From the project root in PowerShell:
 
 ```powershell
-cd C:\Coding\InsightBridge
-py -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-Edit `.env` and set your OpenAI API key:
+Edit `.env` locally and set your own key:
 
-```text
+```env
 OPENAI_API_KEY=your_real_api_key
 ```
 
-## Run
+Never commit `.env` or any real key.
+
+## Environment variables
+
+| Variable | Required for | Example |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | Embeddings and chat responses | `your_openai_api_key_here` |
+
+Local development loads `.env` with `python-dotenv`. Heroku uses a Config Var.
+
+## Running locally
 
 ```powershell
 streamlit run app.py
 ```
 
-In the app:
+On first startup, if `data/faiss_index/` is absent, the app automatically builds the index from the checked-in knowledge base and saves it locally. The build is cached for the Streamlit process so reruns do not repeat the embedding operation. The sidebar still includes **Build / Rebuild Knowledge Base** for an intentional rebuild. The sample SQLite database is already included; the sidebar can also recreate it.
 
-1. Click **Build / Rebuild Knowledge Base** in the sidebar.
-2. Click **Create / Refresh Sample Database** in the sidebar.
-3. Choose **Similarity** or **MMR** retrieval.
-4. Keep **Run generated SELECT SQL** turned on if you want executable SQL output.
-5. Ask a question from the main chat input.
+## Smoke test
 
-You can also create the sample SQLite database from PowerShell:
-
-```powershell
-python -c "from src.database import initialize_sample_database; print(initialize_sample_database())"
-```
-
-## No-API Smoke Test
-
-After installing dependencies, run:
+The smoke test does not call OpenAI. It checks local knowledge-base loading and chunking:
 
 ```powershell
 python evaluation/smoke_test.py
 ```
 
-This validates local document loading and chunking without calling OpenAI.
+## GitHub setup
 
-## Example Questions
+Run these commands from the project root after reviewing the files:
 
-- What is the difference between Revenue and Net Revenue?
-- Which tables do I join to analyze product revenue?
-- Write a SQL query for monthly net revenue.
-- What data-quality rules should I apply before calculating refund rate?
-- Can you generate SQL for Conversion Rate?
-- Show monthly active customers by month.
-- Show the top products by units sold.
+```bash
+git init -b main
+git add .
+git commit -m "Initial commit - InsightBridge"
+git remote add origin <YOUR_GITHUB_REPO_URL>
+git push -u origin main
+```
+
+`.env`, `.venv/`, `data/faiss_index/`, and `.streamlit/secrets.toml` must not be committed. The knowledge base, source code, documentation, evaluation files, and SQLite sample database are intentionally kept in the repository.
+
+## Heroku deployment
+
+The root `Procfile` starts Streamlit on Heroku's assigned `$PORT` and listens on `0.0.0.0`:
+
+```text
+web: streamlit run app.py --server.port=$PORT --server.address=0.0.0.0
+```
+
+Create and deploy the app with:
+
+```bash
+heroku login
+heroku create <APP_NAME>
+heroku config:set OPENAI_API_KEY="YOUR_API_KEY"
+git push heroku main
+heroku open
+```
+
+The OpenAI key must be a Heroku Config Var, not a GitHub file. Because FAISS is generated and ignored, a fresh Heroku dyno automatically creates `data/faiss_index/` during startup using the checked-in knowledge base. Heroku's filesystem is ephemeral, so the index may be rebuilt after a dyno restart or redeploy; embedding API usage can result.
 
 ## Limitations
 
-- The knowledge base is intentionally small and fictional.
-- The FAISS index is local and rebuilt manually from the sidebar.
-- SQL safety uses simple read-only guardrails and a read-only SQLite connection, not a full SQL parser.
-- Conversion Rate cannot be queried from the documented schema because no sessions table is provided.
-- No authentication, database connection, cloud deployment, or document scheduler is included.
+- The knowledge base and SQLite data are small, local, and fictional.
+- The FAISS store is local rather than a managed vector database.
+- There is no authentication, monitoring, production database connection, document scheduler, or automated RAG evaluation.
+- SQL validation uses application guardrails rather than a complete SQL parser.
+- Answers depend on the configured OpenAI services and model name entered in the sidebar.
 
-## Resume-Ready Project Description
+## Future improvements
 
-Built **InsightBridge**, a Streamlit-based Retrieval-Augmented Generation application that answers analytics and SQL questions from a fictional e-commerce knowledge base. Implemented document loading, chunking, OpenAI embeddings, FAISS vector search, Similarity/MMR retrieval, grounded answer generation, source citations, read-only SQL validation, SQLite query execution, and tabular result display. Designed the knowledge base with data dictionaries, KPI definitions, SQL examples, dashboard guidance, and data-quality rules to demonstrate practical analytics and ML engineering skills.
+- Add stronger SQL parsing and validation.
+- Add document upload and refresh workflows.
+- Add metadata filters and automated retrieval/answer evaluation.
+- Move embeddings and application data to managed production services when needed.
 
-## Suggested Next Upgrades
+## Author / contribution
 
-- Add automated RAG evaluation with expected-answer checks.
-- Add stronger SQL validation using a SQL parser.
-- Add document upload from the Streamlit UI.
-- Add metadata filters by document type.
-- Add a lightweight evaluation dashboard for retrieval quality.
+InsightBridge is a portfolio project. Contributions are welcome through issues and pull requests, provided they preserve the read-only SQL design and do not add secrets or generated FAISS artifacts to version control.

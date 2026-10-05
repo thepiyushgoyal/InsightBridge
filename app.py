@@ -36,6 +36,8 @@ SUGGESTED_QUESTIONS = [
 
 
 def main() -> None:
+    index_ready = _initialize_index()
+
     st.title("InsightBridge")
     st.caption("Analytics Knowledge Copilot for e-commerce metrics, schema, SQL, and dashboard guidance.")
 
@@ -73,12 +75,36 @@ def main() -> None:
     if selected_question:
         question = selected_question
 
-    if not index_exists(DEFAULT_INDEX_DIR):
-        st.info("The vector index has not been built yet. Use the sidebar button to build it.")
+    if not index_ready:
+        st.info("The vector index is not ready. Check the error above or use the sidebar button to retry.")
         return
 
     if question:
         _answer_question(question, model_name, retriever_method, top_k, run_sql)
+
+
+@st.cache_resource(show_spinner=False)
+def _ensure_index() -> None:
+    """Build the ignored local FAISS index once when a fresh instance needs it."""
+    if not index_exists(DEFAULT_INDEX_DIR):
+        build_vector_index(
+            knowledge_base_dir=DEFAULT_KNOWLEDGE_BASE_DIR,
+            index_dir=DEFAULT_INDEX_DIR,
+        )
+
+
+def _initialize_index() -> bool:
+    """Ensure a usable index exists without rebuilding it on every rerun."""
+    if index_exists(DEFAULT_INDEX_DIR):
+        return True
+
+    try:
+        with st.spinner("No FAISS index found. Building it from the knowledge base..."):
+            _ensure_index()
+        return index_exists(DEFAULT_INDEX_DIR)
+    except Exception as exc:
+        st.error(f"Unable to initialize the FAISS index: {exc}")
+        return False
 
 
 def _build_index() -> None:
